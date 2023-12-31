@@ -3,7 +3,10 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <gtk/gtk.h>
+#include <cairo.h>
 #include "cJSON.h"
+#include <cairo-pdf.h>
+
 
 // Global flag to track whether the plot has been generated
 int plotGenerated = 0;
@@ -20,10 +23,9 @@ int minIndex = 0;
 // Function declarations
 char *FileToString(FILE *file);
 void retrieveAndProcessData(double latitude, double longitude);
+void generateAndSaveLineChartToPDF(const char *filename);
 void generatePlot(GtkButton *button, gpointer user_data);
-// Corrected function declaration
-void displayTemperatureDetails(GtkWidget *grid);
-
+void displayTemperatureDetailsToPDF(GtkWidget *grid);
 
 char *FileToString(FILE *file) {
     char *buffer = NULL;
@@ -49,14 +51,38 @@ char *FileToString(FILE *file) {
     return buffer;
 }
 
-// Callback function for the "Temperature Details" button click event
-void generatePlot(GtkButton *button, gpointer user_data) {
-    // Check if the plot has already been generated
-    if (plotGenerated) {
-        printf("Temperature details have already been displayed.\n");
+void generateAndSaveLineChartToPDF(const char *filename) {
+    FILE *gnuplotPipe = popen("gnuplot -persistent", "w");
+    
+    if (!gnuplotPipe) {
+        fprintf(stderr, "Error opening gnuplot pipe\n");
         return;
     }
 
+    // Create a gnuplot script to plot the data
+    fprintf(gnuplotPipe, "set terminal pdfcairo\n");
+    fprintf(gnuplotPipe, "set output '%s'\n", filename);
+    fprintf(gnuplotPipe, "set xdata time\n");
+    fprintf(gnuplotPipe, "set timefmt \"%%Y-%%m-%%d\"\n");
+    fprintf(gnuplotPipe, "set format x \"%%m/%%d\"\n");
+    fprintf(gnuplotPipe, "set xlabel 'Date'\n");  // Add X label
+    fprintf(gnuplotPipe, "set ylabel 'Temperature (°C)'\n");  // Add Y label
+    fprintf(gnuplotPipe, "set lmargin at screen 0.15\n");  // Adjust left margin
+
+    // Plot the data
+    fprintf(gnuplotPipe, "plot '-' using 1:2 with lines title 'Average Temperature'\n");
+
+    for (int i = 0; i <= dateIndex; i++) {
+        fprintf(gnuplotPipe, "%s %.2f\n", dates[i], avgTemps[i]);
+    }
+
+    fprintf(gnuplotPipe, "e\n");
+
+    // Close the gnuplot pipe
+    fclose(gnuplotPipe);
+}
+
+void generatePlot(GtkButton *button, gpointer user_data) {
     GtkWidget *latitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 0));
     GtkWidget *longitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 1));
 
@@ -87,11 +113,10 @@ void generatePlot(GtkButton *button, gpointer user_data) {
     // Set the flag to indicate that the plot has been generated
     plotGenerated = 1;
 
-    // Use g_idle_add to execute displayTemperatureDetails in the next iteration of the GTK main loop
-    g_idle_add((GSourceFunc)displayTemperatureDetails, user_data);
+    // Schedule the function to display temperature details in the next iteration of the GTK main loop
+    g_idle_add((GSourceFunc)displayTemperatureDetailsToPDF, user_data);
 }
 
-// Function to retrieve and process data
 void retrieveAndProcessData(double latitude, double longitude) {
     CURL *curl;
     CURLcode res;
@@ -241,43 +266,64 @@ void retrieveAndProcessData(double latitude, double longitude) {
     fclose(jsonFile);
 }
 
-void displayTemperatureDetails(GtkWidget *grid) {
-    GtkWidget *maxTempLabel, *minTempLabel, *window, *box;
+void displayTemperatureDetailsToPDF(GtkWidget *grid) {
+    const char *pdfFilename = "temperature_details.pdf";
 
-    maxTempLabel = gtk_label_new(NULL);
-    minTempLabel = gtk_label_new(NULL);
-    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);  // Vertical box with spacing
+    // Generate and save the line chart to PDF
+    generateAndSaveLineChartToPDF(pdfFilename);
 
-    // Set the text for the labels
-    char maxTempText[100], minTempText[100];
-    snprintf(maxTempText, sizeof(maxTempText), "<b>Hottest Day of Week on Average:</b> %s (%.2f °C)", dates[maxIndex], avgTemps[maxIndex]);
-    snprintf(minTempText, sizeof(minTempText), "<b>Coldest Day of Week on Average:</b> %s (%.2f °C)", dates[minIndex], avgTemps[minIndex]);
+    // Print the hottest and coldest days along with the PDF filename
+    printf("Hottest Day of Week on Average: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
+    printf("Coldest Day of Week on Average: %s (%.2f °C)\n", dates[minIndex], avgTemps[minIndex]);
+    printf("PDF saved to: %s\n", pdfFilename);
 
-    gtk_label_set_markup(GTK_LABEL(maxTempLabel), maxTempText);
-    gtk_label_set_markup(GTK_LABEL(minTempLabel), minTempText);
+    // Create a PDF surface
+    cairo_surface_t *surface = cairo_pdf_surface_create(pdfFilename, 500, 700); // Increased height to allow space for moving the plot
+    cairo_t *cr = cairo_create(surface);
 
-    // Add labels to the box
-    gtk_box_pack_start(GTK_BOX(box), maxTempLabel, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), minTempLabel, FALSE, FALSE, 0);
+    // Set the heading
+    cairo_set_font_size(cr, 18);
+    cairo_move_to(cr, 150, 50);
+    cairo_show_text(cr, "Temperature Report");
 
-    // Attach the box to the window
-    gtk_container_add(GTK_CONTAINER(window), box);
+    // Draw the plot
+    cairo_scale(cr, 0.5, 0.5);  // Scale the image to half its size
+    cairo_set_source_surface(cr, cairo_image_surface_create_from_png("temperature_chart.png"), 50, 250); // Adjust the y-coordinate here
+    cairo_paint(cr);
 
-    // Set the title for the window
-    gtk_window_set_title(GTK_WINDOW(window), "Temperature Details");
+    // Set the labels
+    cairo_set_source_rgb(cr, 0, 0, 0);
+    cairo_scale(cr, 2.0, 2.0);  // Restore the scale for labels
+    cairo_set_font_size(cr, 12);
+    cairo_move_to(cr, 50, 80); // Adjusted y-coordinate for labels
+    cairo_show_text(cr, "Hottest Day of Week on Average:");
+    cairo_move_to(cr, 50, 100);
+    cairo_show_text(cr, "Coldest Day of Week on Average:");
 
-    // Set the size of the window
-    gtk_window_set_default_size(GTK_WINDOW(window), 400, 200);
+    // Display the temperatures for the hottest and coldest days
+    char tempString[20]; // Buffer to store the temperature as a string
 
-    // Connect the destroy signal to gtk_main_quit
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    // Convert temperatures to strings with the degree Celsius symbol
+    sprintf(tempString, "%.2f °C", avgTemps[maxIndex]);
+    cairo_move_to(cr, 390, 80);
+    cairo_show_text(cr, tempString);
 
-    // Show all widgets in the window
-    gtk_widget_show_all(window);
+    sprintf(tempString, "%.2f °C", avgTemps[minIndex]);
+    cairo_move_to(cr, 390, 100);
+    cairo_show_text(cr, tempString);
+
+    // Set the dates
+    cairo_move_to(cr, 290, 80); // Adjusted x-coordinate for dates (right beside the labels)
+    cairo_show_text(cr, dates[maxIndex]);
+    cairo_move_to(cr, 290, 100);
+    cairo_show_text(cr, dates[minIndex]);
+
+    // Clean up
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
 }
 
-// Main function
+
 int main(int argc, char *argv[]) {
     // Initialize GTK
     gtk_init(&argc, &argv);
@@ -324,3 +370,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
