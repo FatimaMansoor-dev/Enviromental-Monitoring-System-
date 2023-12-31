@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
-#include "cJSON.h"
 #include <gtk/gtk.h>
+#include "cJSON.h"
 
 // Global flag to track whether the plot has been generated
 int plotGenerated = 0;
@@ -11,12 +11,43 @@ int plotGenerated = 0;
 // Global variables to store hottest and coldest days of the week
 char hottestDay[20] = "";
 char coldestDay[20] = "";
+char *dates[1000];
+double avgTemps[1000];
+int dateIndex = -1;
+int maxIndex = 0;  // Make maxIndex and minIndex global
+int minIndex = 0;
 
 // Function declarations
 char *FileToString(FILE *file);
 void retrieveAndProcessData(double latitude, double longitude);
 void generatePlot(GtkButton *button, gpointer user_data);
-gboolean displayTemperatureDetails(gpointer user_data);
+// Corrected function declaration
+void displayTemperatureDetails(GtkWidget *grid);
+
+
+char *FileToString(FILE *file) {
+    char *buffer = NULL;
+    long length;
+
+    if (file) {
+        // Seek to the end of the file to get its length
+        fseek(file, 0, SEEK_END);
+        length = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        // Allocate memory for the buffer
+        buffer = (char *)malloc((length + 1) * sizeof(char));
+        if (buffer) {
+            // Read the file content into the buffer
+            fread(buffer, 1, length, file);
+
+            // Null-terminate the buffer
+            buffer[length] = '\0';
+        }
+    }
+
+    return buffer;
+}
 
 // Callback function for the "Temperature Details" button click event
 void generatePlot(GtkButton *button, gpointer user_data) {
@@ -57,7 +88,7 @@ void generatePlot(GtkButton *button, gpointer user_data) {
     plotGenerated = 1;
 
     // Use g_idle_add to execute displayTemperatureDetails in the next iteration of the GTK main loop
-    g_idle_add((GSourceFunc)displayTemperatureDetails, NULL);
+    g_idle_add((GSourceFunc)displayTemperatureDetails, user_data);
 }
 
 // Function to retrieve and process data
@@ -140,11 +171,6 @@ void retrieveAndProcessData(double latitude, double longitude) {
 
         // Check if both arrays exist and have the same number of elements
         if (temperatureArray && timeArray && cJSON_GetArraySize(temperatureArray) == cJSON_GetArraySize(timeArray)) {
-            // Arrays for storing data
-            char *dates[1000];
-            double avgTemps[1000];
-            int dateIndex = -1;
-
             cJSON *temperatureData = temperatureArray->child;
             cJSON *timeData = timeArray->child;
 
@@ -175,7 +201,21 @@ void retrieveAndProcessData(double latitude, double longitude) {
                 timeData = timeData->next;
             }
 
-            // Create a processed data file
+            // Find the index of maximum and minimum average temperatures
+            for (int i = 1; i <= dateIndex; i++) {
+                if (avgTemps[i] > avgTemps[maxIndex]) {
+                    maxIndex = i;
+                }
+                if (avgTemps[i] < avgTemps[minIndex]) {
+                    minIndex = i;
+                }
+            }
+
+            // Print the maximum and minimum average temperatures along with their dates
+            printf("Maximum Temperature: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
+            printf("Minimum Temperature: %s (%.2f °C)\n", dates[minIndex], avgTemps[minIndex]);
+
+            // Save the processed data to a file
             FILE *processedDataFile = fopen("processed_data.txt", "w");
             if (!processedDataFile) {
                 fprintf(stderr, "Error opening processed data file for writing\n");
@@ -184,38 +224,11 @@ void retrieveAndProcessData(double latitude, double longitude) {
                 return;
             }
 
-            // Write processed data to the file
             for (int i = 0; i <= dateIndex; i++) {
                 fprintf(processedDataFile, "%s %.2f\n", dates[i], avgTemps[i]);
-                free(dates[i]);
             }
 
             fclose(processedDataFile);
-
-            // Open a file for writing the Gnuplot script
-            FILE *gnuplotScript = fopen("plot_script.gnu", "w");
-            if (!gnuplotScript) {
-                fprintf(stderr, "Error opening Gnuplot script file for writing\n");
-                cJSON_Delete(root);
-                fclose(jsonFile);
-                return;
-            }
-
-            // Write Gnuplot commands to the script
-            fprintf(gnuplotScript, "set terminal png\n");
-            fprintf(gnuplotScript, "set output 'weather_plot.png'\n");
-            fprintf(gnuplotScript, "set xdata time\n");
-            fprintf(gnuplotScript, "set timefmt '%%Y-%%m-%%d'\n");
-            fprintf(gnuplotScript, "set format x '%%m/%%d'\n");
-            fprintf(gnuplotScript, "plot 'processed_data.txt' using 1:2 with linespoints title 'Average Temperature'\n");
-
-            fclose(gnuplotScript);
-
-            // Execute the Gnuplot script
-            system("gnuplot plot_script.gnu");
-
-            printf("Weather plot generated successfully.\n");
-
         } else {
             fprintf(stderr, "Error: Invalid JSON structure (missing temperature or time array).\n");
         }
@@ -228,116 +241,50 @@ void retrieveAndProcessData(double latitude, double longitude) {
     fclose(jsonFile);
 }
 
-// Function to read the entire contents of a file into a string
-char *FileToString(FILE *file) {
-    char *buffer;
-    long length;
+void displayTemperatureDetails(GtkWidget *grid) {
+    GtkWidget *maxTempLabel, *minTempLabel, *window, *box;
 
-    // Get the length of the file
-    fseek(file, 0, SEEK_END);
-    length = ftell(file);
-    fseek(file, 0, SEEK_SET);
+    maxTempLabel = gtk_label_new(NULL);
+    minTempLabel = gtk_label_new(NULL);
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);  // Vertical box with spacing
 
-    // Allocate memory for the buffer
-    buffer = (char *)malloc(length + 1);
+    // Set the text for the labels
+    char maxTempText[100], minTempText[100];
+    snprintf(maxTempText, sizeof(maxTempText), "<b>Hottest Day of Week on Average:</b> %s (%.2f °C)", dates[maxIndex], avgTemps[maxIndex]);
+    snprintf(minTempText, sizeof(minTempText), "<b>Coldest Day of Week on Average:</b> %s (%.2f °C)", dates[minIndex], avgTemps[minIndex]);
 
-    // Read the file into the buffer
-    fread(buffer, 1, length, file);
+    gtk_label_set_markup(GTK_LABEL(maxTempLabel), maxTempText);
+    gtk_label_set_markup(GTK_LABEL(minTempLabel), minTempText);
 
-    // Add null terminator
-    buffer[length] = '\0';
+    // Add labels to the box
+    gtk_box_pack_start(GTK_BOX(box), maxTempLabel, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), minTempLabel, FALSE, FALSE, 0);
 
-    return buffer;
-}
+    // Attach the box to the window
+    gtk_container_add(GTK_CONTAINER(window), box);
 
-// Function to display temperature details
-gboolean displayTemperatureDetails(gpointer user_data) {
-    // Open the processed data file for reading
-    FILE *processedDataFile = fopen("processed_data.txt", "r");
-    if (!processedDataFile) {
-        fprintf(stderr, "Error opening processed data file for reading\n");
-        return FALSE;
-    }
+    // Set the title for the window
+    gtk_window_set_title(GTK_WINDOW(window), "Temperature Details");
 
-    // Variables to store day-wise temperature data
-    char date[20];
-    double temperature;
+    // Set the size of the window
+    gtk_window_set_default_size(GTK_WINDOW(window), 400, 200);
 
-    // Arrays to store temperature data for each day of the week
-    double maxTemp[7] = {0};
-    double minTemp[7] = {0};
+    // Connect the destroy signal to gtk_main_quit
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    // Read temperature data from the processed data file
-    while (fscanf(processedDataFile, "%s %lf", date, &temperature) == 2) {
-        // Update maximum and minimum temperature for the day of the week
-        struct tm tm_date = {0};
-        sscanf(date, "%d-%d-%d", &tm_date.tm_year, &tm_date.tm_mon, &tm_date.tm_mday);
-        tm_date.tm_mon -= 1;  // Adjust month (0-based)
-        tm_date.tm_year -= 1900;  // Adjust year
-        mktime(&tm_date);  // Normalize the date structure
-        int dayOfWeek = tm_date.tm_wday;
-
-        // Update maximum and minimum temperature for the day of the week
-        if (temperature > maxTemp[dayOfWeek]) {
-            maxTemp[dayOfWeek] = temperature;
-            snprintf(hottestDay, sizeof(hottestDay), "%04d-%02d-%02d", tm_date.tm_year + 1900, tm_date.tm_mon + 1, tm_date.tm_mday);
-        }
-        if (temperature < minTemp[dayOfWeek] || minTemp[dayOfWeek] == 0) {
-            minTemp[dayOfWeek] = temperature;
-            snprintf(coldestDay, sizeof(coldestDay), "%04d-%02d-%02d", tm_date.tm_year + 1900, tm_date.tm_mon + 1, tm_date.tm_mday);
-        }
-    }
-
-    // Close the processed data file
-    fclose(processedDataFile);
-
-    // Create a new window to display temperature details
-    GtkWidget *detailsWindow;
-    GtkWidget *detailsGrid;
-    GtkWidget *hottestLabel, *coldestLabel, *image;
-
-    detailsWindow = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(detailsWindow), "Temperature Details");
-    gtk_window_set_default_size(GTK_WINDOW(detailsWindow), 400, 400);
-
-    detailsGrid = gtk_grid_new();
-    gtk_container_add(GTK_CONTAINER(detailsWindow), detailsGrid);
-
-    hottestLabel = gtk_label_new(NULL);
-    coldestLabel = gtk_label_new(NULL);
-    image = gtk_image_new_from_file("weather_plot.png");  // Assuming the plot is saved as weather_plot.png
-
-    // Decrease the size of the image
-    GdkPixbuf *pixbuf = gtk_image_get_pixbuf(GTK_IMAGE(image));
-    GdkPixbuf *scaled_pixbuf = gdk_pixbuf_scale_simple(pixbuf, 400, 300, GDK_INTERP_BILINEAR);
-    gtk_image_set_from_pixbuf(GTK_IMAGE(image), scaled_pixbuf);
-
-    gtk_label_set_markup(GTK_LABEL(hottestLabel), g_strdup_printf("<b>Hottest Date:</b> %s (%.2f °C)", hottestDay, maxTemp[0]));
-    gtk_label_set_markup(GTK_LABEL(coldestLabel), g_strdup_printf("<b>Coldest Date:</b> %s (%.2f °C)", coldestDay, minTemp[0]));
-
-    // Add spacing below each widget
-    gtk_widget_set_margin_bottom(image, 10);
-    gtk_widget_set_margin_bottom(hottestLabel, 10);
-    gtk_widget_set_margin_bottom(coldestLabel, 10);
-
-    gtk_grid_attach(GTK_GRID(detailsGrid), image, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(detailsGrid), hottestLabel, 0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(detailsGrid), coldestLabel, 0, 2, 1, 1);
-
-    // Show the window
-    gtk_widget_show_all(detailsWindow);
-
-    // Return FALSE to remove the idle handler
-    return FALSE;
+    // Show all widgets in the window
+    gtk_widget_show_all(window);
 }
 
 // Main function
 int main(int argc, char *argv[]) {
+    // Initialize GTK
+    gtk_init(&argc, &argv);
+
     GtkWidget *window;
     GtkWidget *grid;
     GtkWidget *latitude_label, *longitude_label, *latitude_entry, *longitude_entry, *details_button;
-
-    gtk_init(&argc, &argv);
 
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), "Weather Plotter");
