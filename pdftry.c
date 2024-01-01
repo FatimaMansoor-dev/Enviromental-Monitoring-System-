@@ -6,7 +6,6 @@
 #include <cairo.h>
 #include "cJSON.h"
 #include <cairo-pdf.h>
-#include <math.h>
 
 
 // Global flag to track whether the plot has been generated
@@ -20,126 +19,13 @@ double avgTemps[1000];
 int dateIndex = -1;
 int maxIndex = 0;  // Make maxIndex and minIndex global
 int minIndex = 0;
-double std_dev = 0.0;
+
 // Function declarations
 char *FileToString(FILE *file);
 void retrieveAndProcessData(double latitude, double longitude);
-void generateAndSaveLineChartToPNG(const char *filename);
+void generateAndSaveLineChartToPDF(const char *filename);
 void generatePlot(GtkButton *button, gpointer user_data);
-void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray);
-void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data);
-
-
-void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray) {
-    // Initialize weekly average temperature and standard deviation variables for maximum temperature
-    double maxWeeklyAvgTemp = 0.0;
-    double maxSumSquaredDifferences = 0.0;
-    double maxOutlierTemp = -DBL_MAX;
-    char maxOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-    char maxOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
-
-    // Initialize weekly average temperature and standard deviation variables for minimum temperature
-    double minWeeklyAvgTemp = 0.0;
-    double minSumSquaredDifferences = 0.0;
-    double minOutlierTemp = DBL_MAX;
-    char minOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-    char minOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
-
-    // Initialize date variable
-    char *date = NULL;
-
-    // Iterate through avgTemps array and calculate the average for maximum temperature
-    for (int i = 0; i <= dateIndex; i++) {
-        maxWeeklyAvgTemp += avgTemps[i];
-    }
-
-    if (dateIndex > 0) {
-        maxWeeklyAvgTemp /= (double)(dateIndex + 1);
-    }
-
-    // Calculate standard deviation for maximum temperature
-    for (int i = 0; i <= dateIndex; i++) {
-        double difference = avgTemps[i] - maxWeeklyAvgTemp;
-        maxSumSquaredDifferences += difference * difference;
-    }
-
-    // Iterate through avgTemps array and calculate the average for minimum temperature
-    for (int i = 0; i <= dateIndex; i++) {
-        minWeeklyAvgTemp += avgTemps[i];
-    }
-
-    if (dateIndex > 0) {
-        minWeeklyAvgTemp /= (double)(dateIndex + 1);
-    }
-    // Calculate standard deviation for minimum temperature
-for (int i = 0; i <= dateIndex; i++) {
-    double difference = avgTemps[i] - minWeeklyAvgTemp;
-    minSumSquaredDifferences += difference * difference;
-}
-
-    // Update the global standard deviation variable
-    std_dev = sqrt(minSumSquaredDifferences / (double)(dateIndex + 1));
-
-    // Print the weekly average temperature and standard deviation for maximum temperature
-    //printf("Weekly Average Maximum Temperature: %.2f °C\n", maxWeeklyAvgTemp);
-    // Print the weekly average temperature and standard deviation for minimum temperature
-    //printf("Weekly Average Minimum Temperature: %.2f °C\n", minWeeklyAvgTemp);
-    printf("Standard Deviation for Minimum Temperature: %.2f °C\n", sqrt(minSumSquaredDifferences / (double)(dateIndex + 1)));
-
-    // Initialize cJSON pointers for temperature and time data
-    cJSON *temperatureData = temperatureArray->child;
-    cJSON *timeData = timeArray->child;
-
-    // Iterate through hourly temperatures to check for outliers
-    while (temperatureData != NULL && timeData != NULL) {
-        // Extract date and hours
-        date = strtok(timeData->valuestring, "T");
-        double hourlyTemp = temperatureData->valuedouble;
-
-        // Check for outliers for maximum temperature
-        if (fabs(hourlyTemp - maxWeeklyAvgTemp) > 3 * sqrt(maxSumSquaredDifferences / (double)(dateIndex + 1))) {
-            //printf("Max Temperature Outlier detected at %s: Hourly Temperature = %.2f °C\n", date, hourlyTemp);
-
-            // Update maxOutlierTemp and maxOutlierDate if the current outlier is greater
-            if (hourlyTemp > maxOutlierTemp) {
-                maxOutlierTemp = hourlyTemp;
-                strncpy(maxOutlierDate, date, sizeof(maxOutlierDate) - 1);
-                maxOutlierDate[sizeof(maxOutlierDate) - 1] = '\0';
-            }
-        }
-
-        // Check for outliers for minimum temperature
-        if (fabs(hourlyTemp - minWeeklyAvgTemp) > 3 * sqrt(minSumSquaredDifferences / (double)(dateIndex + 1))) {
-            //printf("Min Temperature Outlier detected at %s: Hourly Temperature = %.2f °C\n", date, hourlyTemp);
-
-            // Update minOutlierTemp and minOutlierDate if the current outlier is smaller
-            if (hourlyTemp < minOutlierTemp) {
-                minOutlierTemp = hourlyTemp;
-                strncpy(minOutlierDate, date, sizeof(minOutlierDate) - 1);
-                minOutlierDate[sizeof(minOutlierDate) - 1] = '\0';
-            }
-        }
-
-        // Move to the next elements in the arrays
-        temperatureData = temperatureData->next;
-        timeData = timeData->next;
-    }
-
-    // Check if there were multiple outliers in a day for maximum temperature and print the maximum temperature
-    if (maxOutlierTemp > -DBL_MAX) {
-        printf("Max Temp can rise up to %.2f °C on %s at %s\n", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
-    }
-
-    // Check if there were multiple outliers in a day for minimum temperature and print the minimum temperature
-    if (minOutlierTemp < DBL_MAX) {
-        printf("Min Temp can drop to %.2f °C on %s at %s\n", minOutlierTemp, minOutlierDate, minOutlierTime);
-    }
-}
-
-
-
-
-
+void displayTemperatureDetailsToPDF(GtkWidget *grid);
 
 char *FileToString(FILE *file) {
     char *buffer = NULL;
@@ -165,7 +51,7 @@ char *FileToString(FILE *file) {
     return buffer;
 }
 
-void generateAndSaveLineChartToPNG(const char *filename) {
+void generateAndSaveLineChartToPDF(const char *filename) {
     FILE *gnuplotPipe = popen("gnuplot -persistent", "w");
     
     if (!gnuplotPipe) {
@@ -174,14 +60,14 @@ void generateAndSaveLineChartToPNG(const char *filename) {
     }
 
     // Create a gnuplot script to plot the data
-    fprintf(gnuplotPipe, "set terminal pngcairo\n");  // Change terminal type to pngcairo
+    fprintf(gnuplotPipe, "set terminal pdfcairo\n");
     fprintf(gnuplotPipe, "set output '%s'\n", filename);
     fprintf(gnuplotPipe, "set xdata time\n");
     fprintf(gnuplotPipe, "set timefmt \"%%Y-%%m-%%d\"\n");
     fprintf(gnuplotPipe, "set format x \"%%m/%%d\"\n");
-    fprintf(gnuplotPipe, "set xlabel 'Date'\n");
-    fprintf(gnuplotPipe, "set ylabel 'Temperature (°C)'\n");
-    fprintf(gnuplotPipe, "set lmargin at screen 0.15\n");
+    fprintf(gnuplotPipe, "set xlabel 'Date'\n");  // Add X label
+    fprintf(gnuplotPipe, "set ylabel 'Temperature (°C)'\n");  // Add Y label
+    fprintf(gnuplotPipe, "set lmargin at screen 0.15\n");  // Adjust left margin
 
     // Plot the data
     fprintf(gnuplotPipe, "plot '-' using 1:2 with lines title 'Average Temperature'\n");
@@ -195,6 +81,7 @@ void generateAndSaveLineChartToPNG(const char *filename) {
     // Close the gnuplot pipe
     fclose(gnuplotPipe);
 }
+
 void generatePlot(GtkButton *button, gpointer user_data) {
     GtkWidget *latitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 0));
     GtkWidget *longitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 1));
@@ -226,14 +113,9 @@ void generatePlot(GtkButton *button, gpointer user_data) {
     // Set the flag to indicate that the plot has been generated
     plotGenerated = 1;
 
-    // Generate and save the line chart to PNG
-    const char *pngFilename = "temperature_chart.png";
-    generateAndSaveLineChartToPNG(pngFilename);
-
     // Schedule the function to display temperature details in the next iteration of the GTK main loop
-    g_idle_add((GSourceFunc)displayTemperatureDetailsToPDF, (gpointer)pngFilename);
+    g_idle_add((GSourceFunc)displayTemperatureDetailsToPDF, user_data);
 }
-
 
 void retrieveAndProcessData(double latitude, double longitude) {
     CURL *curl;
@@ -354,22 +236,9 @@ void retrieveAndProcessData(double latitude, double longitude) {
                 }
             }
 
-            // Calculate the weekly average temperature
-            double weeklyAvgTemp = 0.0;
-            for (int i = 0; i <= dateIndex; i++) {
-                weeklyAvgTemp += avgTemps[i];
-            }
-
-            if (dateIndex > 0) {
-                weeklyAvgTemp /= (double)(dateIndex + 1);
-            }
-
             // Print the maximum and minimum average temperatures along with their dates
             printf("Maximum Temperature: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
             printf("Minimum Temperature: %s (%.2f °C)\n", dates[minIndex], avgTemps[minIndex]);
-            printf("Average weekly Temperature: %.2f °C\n", weeklyAvgTemp);
-            
-            analyzeTemperatureOutliers(avgTemps, dateIndex, temperatureArray, timeArray);
 
             // Save the processed data to a file
             FILE *processedDataFile = fopen("processed_data.txt", "w");
@@ -397,12 +266,11 @@ void retrieveAndProcessData(double latitude, double longitude) {
     fclose(jsonFile);
 }
 
-
-void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
-    const char *pngFilename = (const char *)user_data;
+void displayTemperatureDetailsToPDF(GtkWidget *grid) {
     const char *pdfFilename = "temperature_details.pdf";
-    double sumSquaredDifferences = 0.0;
 
+    // Generate and save the line chart to PDF
+    generateAndSaveLineChartToPDF(pdfFilename);
 
     // Print the hottest and coldest days along with the PDF filename
     printf("Hottest Day of Week on Average: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
@@ -418,11 +286,10 @@ void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
     cairo_move_to(cr, 150, 50);
     cairo_show_text(cr, "Temperature Report");
 
-    // Draw the plot using the PNG file
-cairo_scale(cr, 0.5, 0.5);  // Scale the image to half its size
-cairo_set_source_surface(cr, cairo_image_surface_create_from_png("temperature_chart.png"), 50, 250); // Adjust the y-coordinate here
-cairo_paint(cr);
-
+    // Draw the plot
+    cairo_scale(cr, 0.5, 0.5);  // Scale the image to half its size
+    cairo_set_source_surface(cr, cairo_image_surface_create_from_png("temperature_chart.png"), 50, 250); // Adjust the y-coordinate here
+    cairo_paint(cr);
 
     // Set the labels
     cairo_set_source_rgb(cr, 0, 0, 0);
@@ -450,36 +317,6 @@ cairo_paint(cr);
     cairo_show_text(cr, dates[maxIndex]);
     cairo_move_to(cr, 290, 100);
     cairo_show_text(cr, dates[minIndex]);
-    
-    // Set the heading
-    cairo_set_font_size(cr, 16);
-    cairo_move_to(cr, 50, 400);
-    cairo_show_text(cr, "Anomalies");
-
-
-    // Print standard deviation and average temperature of the entire week
-    //double weeklyStdDev = sqrt(sumSquaredDifferences / (double)(dateIndex + 1));
-    double weeklyAvgTemp = 0.0;
-    for (int i = 0; i <= dateIndex; i++) {
-        weeklyAvgTemp += avgTemps[i];
-    }
-    if (dateIndex > 0) {
-        weeklyAvgTemp /= (double)(dateIndex + 1);
-    }
-    cairo_set_font_size(cr, 12);
-    cairo_move_to(cr, 50, 420);
-    cairo_show_text(cr, "Standard Deviation for Weekly Temperature :");
-    cairo_move_to(cr, 50, 440);
-    cairo_show_text(cr, "Average Temperature for Entire Week:");
-
-    // Display the standard deviation and average temperature
-    sprintf(tempString, "%.2f °C", std_dev);
-    cairo_move_to(cr, 390, 420);
-    cairo_show_text(cr, tempString);
-
-    sprintf(tempString, "%.2f °C", weeklyAvgTemp);
-    cairo_move_to(cr, 390, 440);
-    cairo_show_text(cr, tempString);
 
     // Clean up
     cairo_destroy(cr);
@@ -533,3 +370,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
