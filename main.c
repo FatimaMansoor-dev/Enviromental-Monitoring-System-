@@ -13,6 +13,13 @@
 int plotGenerated = 0;
 
 // Global variables to store hottest and coldest days of the week
+char tempString[200]; 
+double maxOutlierTemp = -DBL_MAX;
+char maxOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
+char maxOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
+double minOutlierTemp = DBL_MAX;
+char minOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
+char minOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
 char hottestDay[20] = "";
 char coldestDay[20] = "";
 char *dates[1000];
@@ -21,6 +28,8 @@ int dateIndex = -1;
 int maxIndex = 0;  // Make maxIndex and minIndex global
 int minIndex = 0;
 double std_dev = 0.0;
+double latitude = 0.0;
+double longitude= 0.0;
 // Function declarations
 char *FileToString(FILE *file);
 void retrieveAndProcessData(double latitude, double longitude);
@@ -34,14 +43,12 @@ void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperat
     // Initialize weekly average temperature and standard deviation variables for maximum temperature
     double maxWeeklyAvgTemp = 0.0;
     double maxSumSquaredDifferences = 0.0;
-    double maxOutlierTemp = -DBL_MAX;
     char maxOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
     char maxOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
 
     // Initialize weekly average temperature and standard deviation variables for minimum temperature
     double minWeeklyAvgTemp = 0.0;
     double minSumSquaredDifferences = 0.0;
-    double minOutlierTemp = DBL_MAX;
     char minOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
     char minOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
 
@@ -98,31 +105,48 @@ for (int i = 0; i <= dateIndex; i++) {
 
         // Check for outliers for maximum temperature
         if (fabs(hourlyTemp - maxWeeklyAvgTemp) > 3 * sqrt(maxSumSquaredDifferences / (double)(dateIndex + 1))) {
-            //printf("Max Temperature Outlier detected at %s: Hourly Temperature = %.2f °C\n", date, hourlyTemp);
-
             // Update maxOutlierTemp and maxOutlierDate if the current outlier is greater
             if (hourlyTemp > maxOutlierTemp) {
                 maxOutlierTemp = hourlyTemp;
                 strncpy(maxOutlierDate, date, sizeof(maxOutlierDate) - 1);
                 maxOutlierDate[sizeof(maxOutlierDate) - 1] = '\0';
+
+                // Update maxOutlierTime if available
+                char *timeToken = strtok(NULL, "T");
+                if (timeToken != NULL) {
+                    strncpy(maxOutlierTime, timeToken, sizeof(maxOutlierTime) - 1);
+                    maxOutlierTime[sizeof(maxOutlierTime) - 1] = '\0';
+                } else {
+                    // Handle case where time token is NULL
+                    maxOutlierTime[0] = '\0';
+                }
             }
         }
 
         // Check for outliers for minimum temperature
-        if (fabs(hourlyTemp - minWeeklyAvgTemp) > 3 * sqrt(minSumSquaredDifferences / (double)(dateIndex + 1))) {
-            //printf("Min Temperature Outlier detected at %s: Hourly Temperature = %.2f °C\n", date, hourlyTemp);
-
+        if (fabs(hourlyTemp - minWeeklyAvgTemp) < (3 * sqrt(minSumSquaredDifferences / (double)(dateIndex + 1)))) {
             // Update minOutlierTemp and minOutlierDate if the current outlier is smaller
             if (hourlyTemp < minOutlierTemp) {
                 minOutlierTemp = hourlyTemp;
                 strncpy(minOutlierDate, date, sizeof(minOutlierDate) - 1);
                 minOutlierDate[sizeof(minOutlierDate) - 1] = '\0';
+
+                // Update minOutlierTime if available
+                char *timeToken = strtok(NULL, "T");
+                if (timeToken != NULL) {
+                    strncpy(minOutlierTime, timeToken, sizeof(minOutlierTime) - 1);
+                    minOutlierTime[sizeof(minOutlierTime) - 1] = '\0';
+                } else {
+                    // Handle case where time token is NULL
+                    minOutlierTime[0] = '\0';
+                }
             }
         }
 
         // Move to the next elements in the arrays
         temperatureData = temperatureData->next;
         timeData = timeData->next;
+    
     }
 
     // Check if there were multiple outliers in a day for maximum temperature and print the maximum temperature
@@ -135,10 +159,6 @@ for (int i = 0; i <= dateIndex; i++) {
         printf("Min Temp can drop to %.2f °C on %s at %s\n", minOutlierTemp, minOutlierDate, minOutlierTime);
     }
 }
-
-
-
-
 
 
 char *FileToString(FILE *file) {
@@ -214,8 +234,6 @@ void generatePlot(GtkButton *button, gpointer user_data) {
         return;
     }
 
-    double latitude, longitude;
-
     // Convert latitude and longitude text to double
     sscanf(latitude_text, "%lf", &latitude);
     sscanf(longitude_text, "%lf", &longitude);
@@ -252,7 +270,7 @@ void retrieveAndProcessData(double latitude, double longitude) {
 
     // Construct the custom URL
     char url[256];
-    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%.6f&longitude=%.6f&hourly=temperature_2m", latitude, longitude);
+    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%lf&longitude=%lf&hourly=temperature_2m,precipitation_probability,rain", latitude, longitude);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
@@ -403,7 +421,6 @@ void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
     const char *pdfFilename = "temperature_details.pdf";
     double sumSquaredDifferences = 0.0;
 
-
     // Print the hottest and coldest days along with the PDF filename
     printf("Hottest Day of Week on Average: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
     printf("Coldest Day of Week on Average: %s (%.2f °C)\n", dates[minIndex], avgTemps[minIndex]);
@@ -416,49 +433,47 @@ void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
     // Set the heading
     cairo_set_font_size(cr, 18);
     cairo_move_to(cr, 150, 50);
-    cairo_show_text(cr, "Temperature Report");
+    cairo_show_text(cr, "Weather Report");
 
     // Draw the plot using the PNG file
-cairo_scale(cr, 0.5, 0.5);  // Scale the image to half its size
-cairo_set_source_surface(cr, cairo_image_surface_create_from_png("temperature_chart.png"), 50, 250); // Adjust the y-coordinate here
-cairo_paint(cr);
-
+    cairo_scale(cr, 0.5, 0.5);  // Scale the image to half its size
+    cairo_set_source_surface(cr, cairo_image_surface_create_from_png("temperature_chart.png"), 50, 320); // Adjust the y-coordinate here
+    cairo_paint(cr);
 
     // Set the labels
     cairo_set_source_rgb(cr, 0, 0, 0);
     cairo_scale(cr, 2.0, 2.0);  // Restore the scale for labels
     cairo_set_font_size(cr, 12);
-    cairo_move_to(cr, 50, 80); // Adjusted y-coordinate for labels
+    cairo_move_to(cr, 50, 130); 
+
     cairo_show_text(cr, "Hottest Day of Week on Average:");
-    cairo_move_to(cr, 50, 100);
+    cairo_move_to(cr, 50, 150);
     cairo_show_text(cr, "Coldest Day of Week on Average:");
 
     // Display the temperatures for the hottest and coldest days
-    char tempString[20]; // Buffer to store the temperature as a string
+    char tempString[200]; // Buffer to store the temperature as a string
 
     // Convert temperatures to strings with the degree Celsius symbol
     sprintf(tempString, "%.2f °C", avgTemps[maxIndex]);
-    cairo_move_to(cr, 390, 80);
+    cairo_move_to(cr, 390, 130);
     cairo_show_text(cr, tempString);
 
     sprintf(tempString, "%.2f °C", avgTemps[minIndex]);
-    cairo_move_to(cr, 390, 100);
+    cairo_move_to(cr, 390, 150);
     cairo_show_text(cr, tempString);
 
     // Set the dates
-    cairo_move_to(cr, 290, 80); // Adjusted x-coordinate for dates (right beside the labels)
+    cairo_move_to(cr, 290, 130); 
     cairo_show_text(cr, dates[maxIndex]);
-    cairo_move_to(cr, 290, 100);
+    cairo_move_to(cr, 290, 150);
     cairo_show_text(cr, dates[minIndex]);
     
     // Set the heading
     cairo_set_font_size(cr, 16);
-    cairo_move_to(cr, 50, 400);
+    cairo_move_to(cr, 50, 450);
     cairo_show_text(cr, "Anomalies");
 
-
     // Print standard deviation and average temperature of the entire week
-    //double weeklyStdDev = sqrt(sumSquaredDifferences / (double)(dateIndex + 1));
     double weeklyAvgTemp = 0.0;
     for (int i = 0; i <= dateIndex; i++) {
         weeklyAvgTemp += avgTemps[i];
@@ -467,24 +482,53 @@ cairo_paint(cr);
         weeklyAvgTemp /= (double)(dateIndex + 1);
     }
     cairo_set_font_size(cr, 12);
-    cairo_move_to(cr, 50, 420);
+    cairo_move_to(cr, 50, 470);
     cairo_show_text(cr, "Standard Deviation for Weekly Temperature :");
-    cairo_move_to(cr, 50, 440);
+    cairo_move_to(cr, 50, 490);
     cairo_show_text(cr, "Average Temperature for Entire Week:");
 
     // Display the standard deviation and average temperature
     sprintf(tempString, "%.2f °C", std_dev);
-    cairo_move_to(cr, 390, 420);
+    cairo_move_to(cr, 390, 470);
     cairo_show_text(cr, tempString);
 
     sprintf(tempString, "%.2f °C", weeklyAvgTemp);
-    cairo_move_to(cr, 390, 440);
+    cairo_move_to(cr, 390, 490);
     cairo_show_text(cr, tempString);
 
-    // Clean up
-    cairo_destroy(cr);
-    cairo_surface_destroy(surface);
+// Print the minimum temperature outlier details
+// Print the maximum temperature outlier details
+if (maxOutlierTemp > -DBL_MAX) {
+    sprintf(tempString, "Temp can rise up to %.2f °C on %s at %s", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
+    cairo_move_to(cr, 50, 510); 
+    cairo_show_text(cr, tempString);
 }
+
+// Print the minimum temperature outlier details
+if (minOutlierTemp < DBL_MAX) {
+    sprintf(tempString, "Temp can drop to %.2f °C on %s at %s", minOutlierTemp, minOutlierDate, minOutlierTime);
+    cairo_move_to(cr, 50, 530); 
+    cairo_show_text(cr, tempString);
+}
+    
+// Display longitude
+sprintf(tempString, "Longitude: %.2f", longitude);  
+cairo_move_to(cr, 50, 100); 
+cairo_show_text(cr, tempString);
+// Display longitude
+sprintf(tempString, "Latitude: %.2f", latitude);  
+cairo_move_to(cr, 280, 100); 
+cairo_show_text(cr, tempString);
+
+// Finish the PDF surface
+cairo_surface_finish(surface);
+
+// Clean up Cairo resources
+cairo_surface_destroy(surface);
+cairo_destroy(cr);
+}
+
+
 
 
 int main(int argc, char *argv[]) {
@@ -506,7 +550,7 @@ int main(int argc, char *argv[]) {
     longitude_label = gtk_label_new("Longitude:");
     latitude_entry = gtk_entry_new();
     longitude_entry = gtk_entry_new();
-    details_button = gtk_button_new_with_label("Temperature Details");
+    details_button = gtk_button_new_with_label("Generate Weather Report");
 
     // Add spacing below each widget
     gtk_widget_set_margin_bottom(latitude_label, 5);
@@ -530,6 +574,11 @@ int main(int argc, char *argv[]) {
 
     // Start the GTK main loop
     gtk_main();
+    // Free memory for dates
+for (int i = 0; i <= dateIndex; i++) {
+    free(dates[i]);
+}
+
 
     return 0;
 }
