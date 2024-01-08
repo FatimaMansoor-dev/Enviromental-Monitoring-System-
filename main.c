@@ -30,6 +30,9 @@ int minIndex = 0;
 double std_dev = 0.0;
 double latitude = 0.0;
 double longitude= 0.0;
+
+
+
 // Function declarations
 char *FileToString(FILE *file);
 void retrieveAndProcessData(double latitude, double longitude);
@@ -37,6 +40,48 @@ void generateAndSaveLineChartToPNG(const char *filename);
 void generatePlot(GtkButton *button, gpointer user_data);
 void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray);
 void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data);
+
+void extractPrecipitationData(cJSON *hourlyArray, int dateIndex) {
+    cJSON *precipitationArray = cJSON_GetObjectItem(hourlyArray, "precipitation_probability");
+
+    // Check if the precipitation array exists
+    if (precipitationArray) {
+        cJSON *precipitationDataNode = precipitationArray->child;
+
+        printf("Hourly Precipitation Percentages:\n");
+
+        for (int i = 0; i <= 2; i++) {
+            printf("%s: ", dates[i]);
+            int zeroCount = 0;
+            int hour = 1;
+
+            for (int j = 0; j < 24; j++) {
+                if (precipitationDataNode != NULL) {
+                    double precipitationPercentage = precipitationDataNode->valuedouble;
+
+                    if (precipitationPercentage == 0) {
+                        hour += 1;
+                        zeroCount += 1;
+                    } else {
+                        printf("%.2f%% at %.2d:00 , ", precipitationPercentage, hour);
+                        hour += 1;
+                    }
+                    if (zeroCount == 24) {
+                        printf("No chance of precipitation for the entire day");
+                    } 
+
+                    precipitationDataNode = precipitationDataNode->next;
+                } else {
+                    printf("NO Data for Precipitation");
+                }
+            }
+            printf("\n");
+        }
+    } else {
+        printf("No precipitation data available.\n");
+    }
+}
+
 
 
 void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray) {
@@ -270,7 +315,7 @@ void retrieveAndProcessData(double latitude, double longitude) {
 
     // Construct the custom URL
     char url[256];
-    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%lf&longitude=%lf&hourly=temperature_2m,precipitation_probability,rain", latitude, longitude);
+    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%lf&longitude=%lf&hourly=temperature_2m,precipitation_probability,visibility", latitude, longitude);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
@@ -388,6 +433,10 @@ void retrieveAndProcessData(double latitude, double longitude) {
             printf("Average weekly Temperature: %.2f °C\n", weeklyAvgTemp);
             
             analyzeTemperatureOutliers(avgTemps, dateIndex, temperatureArray, timeArray);
+            // Call the function to extract and print precipitation data
+          
+            extractPrecipitationData(hourlyArray, dateIndex);
+
 
             // Save the processed data to a file
             FILE *processedDataFile = fopen("processed_data.txt", "w");
