@@ -41,46 +41,7 @@ void generatePlot(GtkButton *button, gpointer user_data);
 void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray);
 void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data);
 
-void extractPrecipitationData(cJSON *hourlyArray, int dateIndex) {
-    cJSON *precipitationArray = cJSON_GetObjectItem(hourlyArray, "precipitation_probability");
 
-    // Check if the precipitation array exists
-    if (precipitationArray) {
-        cJSON *precipitationDataNode = precipitationArray->child;
-
-        printf("Hourly Precipitation Percentages:\n");
-
-        for (int i = 0; i <= 2; i++) {
-            printf("%s: ", dates[i]);
-            int zeroCount = 0;
-            int hour = 1;
-
-            for (int j = 0; j < 24; j++) {
-                if (precipitationDataNode != NULL) {
-                    double precipitationPercentage = precipitationDataNode->valuedouble;
-
-                    if (precipitationPercentage == 0) {
-                        hour += 1;
-                        zeroCount += 1;
-                    } else {
-                        printf("%.2f%% at %.2d:00 , ", precipitationPercentage, hour);
-                        hour += 1;
-                    }
-                    if (zeroCount == 24) {
-                        printf("No chance of precipitation for the entire day");
-                    } 
-
-                    precipitationDataNode = precipitationDataNode->next;
-                } else {
-                    printf("NO Data for Precipitation");
-                }
-            }
-            printf("\n");
-        }
-    } else {
-        printf("No precipitation data available.\n");
-    }
-}
 
 
 
@@ -131,11 +92,6 @@ for (int i = 0; i <= dateIndex; i++) {
 
     // Update the global standard deviation variable
     std_dev = sqrt(minSumSquaredDifferences / (double)(dateIndex + 1));
-
-    // Print the weekly average temperature and standard deviation for maximum temperature
-    //printf("Weekly Average Maximum Temperature: %.2f °C\n", maxWeeklyAvgTemp);
-    // Print the weekly average temperature and standard deviation for minimum temperature
-    //printf("Weekly Average Minimum Temperature: %.2f °C\n", minWeeklyAvgTemp);
     printf("Standard Deviation for Minimum Temperature: %.2f °C\n", sqrt(minSumSquaredDifferences / (double)(dateIndex + 1)));
 
     // Initialize cJSON pointers for temperature and time data
@@ -433,9 +389,7 @@ void retrieveAndProcessData(double latitude, double longitude) {
             printf("Average weekly Temperature: %.2f °C\n", weeklyAvgTemp);
             
             analyzeTemperatureOutliers(avgTemps, dateIndex, temperatureArray, timeArray);
-            // Call the function to extract and print precipitation data
-          
-            extractPrecipitationData(hourlyArray, dateIndex);
+            
 
 
             // Save the processed data to a file
@@ -446,10 +400,60 @@ void retrieveAndProcessData(double latitude, double longitude) {
                 fclose(jsonFile);
                 return;
             }
-
+		// avg temps
+		fprintf(processedDataFile,"Daily Average Temperatures\n");
             for (int i = 0; i <= dateIndex; i++) {
                 fprintf(processedDataFile, "%s %.2f\n", dates[i], avgTemps[i]);
             }
+            
+            // Call the function to extract and print precipitation data
+          
+            cJSON *precipitationArray = cJSON_GetObjectItem(hourlyArray, "precipitation_probability");
+
+    // Check if the precipitation array exists
+    if (precipitationArray) {
+        cJSON *precipitationDataNode = precipitationArray->child;
+
+        fprintf(processedDataFile,"\n\nHourly Precipitation Percentages:\n\n");
+
+        for (int i = 0; i <= 2; i++) {
+            fprintf(processedDataFile,"%s: \n", dates[i]);
+            int zeroCount = 0;
+            int hour = 0;
+
+            for (int j = 0; j < 24; j++) {
+                if (precipitationDataNode != NULL) {
+                    double precipitationPercentage = precipitationDataNode->valuedouble;
+
+                    if (precipitationPercentage == 0) {
+                        hour += 1;
+                        zeroCount += 1;
+                    } else {
+                    	if (hour == 0) {
+                        	fprintf(processedDataFile,"%.2f%% at 00:00 \n", precipitationPercentage);
+                        	hour += 1;
+                    } else {
+                    	
+                        fprintf(processedDataFile,"%.2f%% at %.2d:00 \n ", precipitationPercentage, hour);
+                        hour += 1;
+                    }
+                    }
+                    if (zeroCount == 23) {
+                        fprintf(processedDataFile,"No chance of precipitation for the entire day");
+                    } 
+
+                    precipitationDataNode = precipitationDataNode->next;
+                } else {
+                    printf("NO Data for Precipitation");
+                }
+            }
+            fprintf(processedDataFile,"\n");
+        }
+    } else {
+        printf("No precipitation data available.\n");
+    }
+            
+            
 
             fclose(processedDataFile);
         } else {
@@ -458,13 +462,13 @@ void retrieveAndProcessData(double latitude, double longitude) {
     } else {
         fprintf(stderr, "Error: Invalid JSON structure (missing hourly array).\n");
     }
+    
+    
 
     // Clean up
     cJSON_Delete(root);
     fclose(jsonFile);
 }
-
-
 void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
     const char *pngFilename = (const char *)user_data;
     const char *pdfFilename = "temperature_details.pdf";
@@ -568,6 +572,49 @@ cairo_show_text(cr, tempString);
 sprintf(tempString, "Latitude: %.2f", latitude);  
 cairo_move_to(cr, 280, 100); 
 cairo_show_text(cr, tempString);
+
+// Finish the first page
+    cairo_show_page(cr);
+
+    // Start the new page
+cairo_set_font_size(cr, 12);
+cairo_move_to(cr, 50, 50);
+//cairo_show_text(cr, "Precipitation Details:");
+
+// Display precipitation details on the new page
+FILE *processedDataFile = fopen("processed_data.txt", "r");
+if (!processedDataFile) {
+    fprintf(stderr, "Error opening processed data file for reading\n");
+    cairo_surface_finish(surface);
+    cairo_surface_destroy(surface);
+    cairo_destroy(cr);
+    return;
+}
+
+char line[256];
+double y_position = 70;  // Adjust the starting y-position
+int startDisplay = 0;    // Flag to start displaying lines
+
+while (fgets(line, sizeof(line), processedDataFile) != NULL) {
+    if (strstr(line, "Hourly Precipitation Percentages:") != NULL) {
+        startDisplay = 1;  // Set the flag to start displaying lines
+    }
+
+    if (startDisplay) {
+        // Split line into tokens based on newline character
+        char *token = strtok(line, "\n");
+
+        // Display each line of text
+        cairo_move_to(cr, 50, y_position);
+        cairo_show_text(cr, token);
+
+        // Increment y_position for the next line
+        y_position += 25;  // Adjust the vertical spacing as needed
+    }
+}
+
+    fclose(processedDataFile);
+
 
 // Finish the PDF surface
 cairo_surface_finish(surface);
