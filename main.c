@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h> 
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
@@ -9,17 +10,15 @@
 #include <math.h>
 
 
-// Global flag to track whether the plot has been generated
-int plotGenerated = 0;
 
 // Global variables to store hottest and coldest days of the week
 char tempString[200]; 
 double maxOutlierTemp = -DBL_MAX;
 char maxOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-char maxOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
+char maxOutlierTime[9] = "";   
 double minOutlierTemp = DBL_MAX;
-char minOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-char minOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
+char minOutlierDate[11] = "";  
+char minOutlierTime[9] = "";  
 char hottestDay[20] = "";
 char coldestDay[20] = "";
 char *dates[1000];
@@ -41,7 +40,67 @@ void generatePlot(GtkButton *button, gpointer user_data);
 void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray);
 void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data);
 
+void sendEmailNotification(const char *subject, const char *body, const char *attachmentPath) {
+    CURL *curl;
+    CURLcode res;
 
+    // Initialize the curl session
+    curl = curl_easy_init();
+
+    // Check if the initialization is successful
+    if (curl) {
+        // Set the email server details
+        curl_easy_setopt(curl, CURLOPT_URL, "smtps://smtp.gmail.com:465");
+        curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+
+        // Set the username and password for SMTP authentication
+        curl_easy_setopt(curl, CURLOPT_USERNAME, "fatima.mansoorali03@gmail.com"); // Replace with your email
+        curl_easy_setopt(curl, CURLOPT_PASSWORD, "zvjx hfvu utmp ucep"); // Replace with your password
+
+        // Set the authentication method
+        curl_easy_setopt(curl, CURLOPT_LOGIN_OPTIONS, "AUTH=PLAIN");
+
+        // Set the email headers
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "From: fatima.mansoorali03@gmail.com"); // Replace with your email
+        headers = curl_slist_append(headers, "To: riffat.mansoor92@gmail.com"); // Replace with recipient email
+        // Add Subject to the headers
+char subjectHeader[100];
+snprintf(subjectHeader, sizeof(subjectHeader), "Subject: %s", subject);
+headers = curl_slist_append(headers, subjectHeader);
+        // Set the custom headers for the email
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        // Create the mime structure
+        struct curl_mime *mime = curl_mime_init(curl);
+
+        // Attach the message to the email
+        struct curl_mimepart *part = curl_mime_addpart(mime);
+        curl_mime_data(part, body, CURL_ZERO_TERMINATED); // Set the body of the email
+
+        
+
+        curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+
+        // Set the recipients
+        struct curl_slist *recipients = NULL;
+        recipients = curl_slist_append(recipients, "riffat.mansoor92@gmail.com"); // Replace with recipient email
+        curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+
+        // Perform the email sending
+        res = curl_easy_perform(curl);
+
+        // Check for errors
+        if (res != CURLE_OK)
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+
+        // Clean up
+        curl_slist_free_all(headers);
+        curl_slist_free_all(recipients);
+        curl_easy_cleanup(curl);
+        curl_mime_free(mime); // Free the mime structure
+    }
+}
 
 
 
@@ -49,15 +108,11 @@ void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperat
     // Initialize weekly average temperature and standard deviation variables for maximum temperature
     double maxWeeklyAvgTemp = 0.0;
     double maxSumSquaredDifferences = 0.0;
-    char maxOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-    char maxOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
-
+    
     // Initialize weekly average temperature and standard deviation variables for minimum temperature
     double minWeeklyAvgTemp = 0.0;
     double minSumSquaredDifferences = 0.0;
-    char minOutlierDate[11] = "";  // Assuming date format "yyyy-mm-dd"
-    char minOutlierTime[9] = "";   // Assuming time format "hh:mm:ss"
-
+    
     // Initialize date variable
     char *date = NULL;
 
@@ -153,6 +208,7 @@ for (int i = 0; i <= dateIndex; i++) {
     // Check if there were multiple outliers in a day for maximum temperature and print the maximum temperature
     if (maxOutlierTemp > -DBL_MAX) {
         printf("Max Temp can rise up to %.2f °C on %s at %s\n", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
+      
     }
 
     // Check if there were multiple outliers in a day for minimum temperature and print the minimum temperature
@@ -216,6 +272,7 @@ void generateAndSaveLineChartToPNG(const char *filename) {
     // Close the gnuplot pipe
     fclose(gnuplotPipe);
 }
+
 void generatePlot(GtkButton *button, gpointer user_data) {
     GtkWidget *latitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 0));
     GtkWidget *longitude_entry = GTK_WIDGET(gtk_grid_get_child_at(GTK_GRID(user_data), 1, 1));
@@ -229,7 +286,7 @@ void generatePlot(GtkButton *button, gpointer user_data) {
     const gchar *latitude_text = gtk_entry_get_text(GTK_ENTRY(latitude_entry));
     const gchar *longitude_text = gtk_entry_get_text(GTK_ENTRY(longitude_entry));
 
-    // Ensure that latitude and longitude are not empty
+     // Ensure that latitude and longitude are not empty
     if (strlen(latitude_text) == 0 || strlen(longitude_text) == 0) {
         fprintf(stderr, "Error: Latitude or longitude is empty.\n");
         return;
@@ -242,16 +299,20 @@ void generatePlot(GtkButton *button, gpointer user_data) {
     // Call the function to retrieve and process data
     retrieveAndProcessData(latitude, longitude);
 
-    // Set the flag to indicate that the plot has been generated
-    plotGenerated = 1;
 
-    // Generate and save the line chart to PNG
+     // Generate and save the line chart to PNG
     const char *pngFilename = "temperature_chart.png";
     generateAndSaveLineChartToPNG(pngFilename);
 
     // Schedule the function to display temperature details in the next iteration of the GTK main loop
-    g_idle_add((GSourceFunc)displayTemperatureDetailsToPDF, (gpointer)pngFilename);
-}
+   g_idle_add((GSourceFunc)displayTemperatureDetailsToPDF, (gpointer)pngFilename);
+   
+   // Check if there were multiple outliers in a day for maximum temperature and print the maximum temperature
+    //if (maxOutlierTemp > -DBL_MAX) {
+        //printf("Max Temp can rise up to %.2f °C on %s at %s\n", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
+        // Check if the maximum temperature exceeds the threshold and send an email
+        
+    }
 
 
 void retrieveAndProcessData(double latitude, double longitude) {
@@ -552,14 +613,14 @@ void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
 // Print the minimum temperature outlier details
 // Print the maximum temperature outlier details
 if (maxOutlierTemp > -DBL_MAX) {
-    sprintf(tempString, "Temp can rise up to %.2f °C on %s at %s", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
+    sprintf(tempString, "Temp can rise up to %.2f °C on %s", maxOutlierTemp, maxOutlierDate);
     cairo_move_to(cr, 50, 510); 
     cairo_show_text(cr, tempString);
 }
 
 // Print the minimum temperature outlier details
 if (minOutlierTemp < DBL_MAX) {
-    sprintf(tempString, "Temp can drop to %.2f °C on %s at %s", minOutlierTemp, minOutlierDate, minOutlierTime);
+    sprintf(tempString, "Temp can drop to %.2f °C on %s", minOutlierTemp, minOutlierDate);
     cairo_move_to(cr, 50, 530); 
     cairo_show_text(cr, tempString);
 }
@@ -578,7 +639,7 @@ cairo_show_text(cr, tempString);
 
     // Start the new page
 cairo_set_font_size(cr, 12);
-cairo_move_to(cr, 50, 50);
+cairo_move_to(cr, 50, 20);
 //cairo_show_text(cr, "Precipitation Details:");
 
 // Display precipitation details on the new page
@@ -609,21 +670,44 @@ while (fgets(line, sizeof(line), processedDataFile) != NULL) {
         cairo_show_text(cr, token);
 
         // Increment y_position for the next line
-        y_position += 25;  // Adjust the vertical spacing as needed
+        y_position += 20;  // Adjust the vertical spacing as needed
     }
 }
-
     fclose(processedDataFile);
-
 
 // Finish the PDF surface
 cairo_surface_finish(surface);
+cairo_show_page(cr);
+printf("DONE PDF\n");
 
 // Clean up Cairo resources
 cairo_surface_destroy(surface);
 cairo_destroy(cr);
-}
 
+     
+        // Open the generated PDF using xdg-open (you can replace it with gnome-open on GNOME systems)
+    if (access(pdfFilename, F_OK) != -1) {
+        system("xdg-open temperature_details.pdf");
+    }
+
+
+if (maxOutlierTemp > 40) {
+            const char *emailSubject = "High Temperature Alert!";
+            const char *emailBody = "The maximum temperature is likely to go above 40 °C. Please check the weather report and take necessary precautions. \n GOOD DAY ☺ ";
+             // Call the sendEmailNotification function
+             printf("NOW I CALL EMAIL\n");
+    sendEmailNotification(emailSubject, emailBody,"temperature_details.pdf");
+        }
+        
+        if (minOutlierTemp < 10) {
+            const char *emailSubject = "Low Temperature Alert!";
+            const char *emailBody = "The minimum temperature is likely to go below 10 °C. Please check the weather report and take necessary precautions. \n GOOD DAY ☺ ";
+             // Call the sendEmailNotification function
+             printf("NOW I CALL EMAIL\n");
+    sendEmailNotification(emailSubject, emailBody, "temperature_details.pdf");
+        }
+   
+}
 
 
 
