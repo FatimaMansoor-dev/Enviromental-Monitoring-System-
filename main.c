@@ -40,7 +40,7 @@ void generatePlot(GtkButton *button, gpointer user_data);
 void analyzeTemperatureOutliers(double *avgTemps, int dateIndex, cJSON *temperatureArray, cJSON *timeArray);
 void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data);
 
-void sendEmailNotification(const char *subject, const char *body, const char *attachmentPath) {
+void sendEmailNotification(const char *subject, const char *body, const char *recipientEmail) {
     CURL *curl;
     CURLcode res;
 
@@ -62,8 +62,8 @@ void sendEmailNotification(const char *subject, const char *body, const char *at
 
         // Set the email headers
         struct curl_slist *headers = NULL;
-        headers = curl_slist_append(headers, "From: fatima.mansoorali03@gmail.com"); // Replace with your email
-        headers = curl_slist_append(headers, "To: riffat.mansoor92@gmail.com"); // Replace with recipient email
+        headers = curl_slist_append(headers, "From: fatima.mansoorali03@gmail.com"); 
+        headers = curl_slist_append(headers, recipientEmail); 
         // Add Subject to the headers
 char subjectHeader[100];
 snprintf(subjectHeader, sizeof(subjectHeader), "Subject: %s", subject);
@@ -84,7 +84,7 @@ headers = curl_slist_append(headers, subjectHeader);
 
         // Set the recipients
         struct curl_slist *recipients = NULL;
-        recipients = curl_slist_append(recipients, "riffat.mansoor92@gmail.com"); // Replace with recipient email
+        recipients = curl_slist_append(recipients, recipientEmail); // Replace with recipient email
         curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
 
         // Perform the email sending
@@ -207,13 +207,13 @@ for (int i = 0; i <= dateIndex; i++) {
 
     // Check if there were multiple outliers in a day for maximum temperature and print the maximum temperature
     if (maxOutlierTemp > -DBL_MAX) {
-        printf("Max Temp can rise up to %.2f °C on %s at %s\n", maxOutlierTemp, maxOutlierDate, maxOutlierTime);
+        printf("Temp can rise up to %.2f °C on %s \n", maxOutlierTemp, maxOutlierDate);
       
     }
 
     // Check if there were multiple outliers in a day for minimum temperature and print the minimum temperature
     if (minOutlierTemp < DBL_MAX) {
-        printf("Min Temp can drop to %.2f °C on %s at %s\n", minOutlierTemp, minOutlierDate, minOutlierTime);
+        printf("Temp can drop to %.2f °C on %s \n", minOutlierTemp, minOutlierDate);
     }
 }
 
@@ -443,10 +443,7 @@ void retrieveAndProcessData(double latitude, double longitude) {
             if (dateIndex > 0) {
                 weeklyAvgTemp /= (double)(dateIndex + 1);
             }
-
-            // Print the maximum and minimum average temperatures along with their dates
-            printf("Maximum Temperature: %s (%.2f °C)\n", dates[maxIndex], avgTemps[maxIndex]);
-            printf("Minimum Temperature: %s (%.2f °C)\n", dates[minIndex], avgTemps[minIndex]);
+            printf("*******  Global Weather App *******\n");
             printf("Average weekly Temperature: %.2f °C\n", weeklyAvgTemp);
             
             analyzeTemperatureOutliers(avgTemps, dateIndex, temperatureArray, timeArray);
@@ -611,7 +608,6 @@ void displayTemperatureDetailsToPDF(GtkWidget *grid, gpointer user_data) {
     cairo_show_text(cr, tempString);
 
 // Print the minimum temperature outlier details
-// Print the maximum temperature outlier details
 if (maxOutlierTemp > -DBL_MAX) {
     sprintf(tempString, "Temp can rise up to %.2f °C on %s", maxOutlierTemp, maxOutlierDate);
     cairo_move_to(cr, 50, 510); 
@@ -692,19 +688,31 @@ cairo_destroy(cr);
 
 
 if (maxOutlierTemp > 40) {
+	// Prompt the user for an email address
+char recipientEmail[100];
+printf("We have found extreme temperature Values in your region  >~< \nTo get notified, enter your email address : ");
+scanf("%s", recipientEmail);
+
             const char *emailSubject = "High Temperature Alert!";
             const char *emailBody = "The maximum temperature is likely to go above 40 °C. Please check the weather report and take necessary precautions. \n GOOD DAY ☺ ";
              // Call the sendEmailNotification function
-             printf("NOW I CALL EMAIL\n");
-    sendEmailNotification(emailSubject, emailBody,"temperature_details.pdf");
+    sendEmailNotification(emailSubject, emailBody,recipientEmail);
+    printf("EMAIL SENT SUCCESSFULLY \n");
+     exit(0);
         }
         
         if (minOutlierTemp < 10) {
+            // Prompt the user for an email address
+            char recipientEmail[100];
+            printf("We have found extreme temperature Values in your region  >~< \nTo get notified, enter your email address : ");
+            scanf("%s", recipientEmail);
+
             const char *emailSubject = "Low Temperature Alert!";
-            const char *emailBody = "The minimum temperature is likely to go below 10 °C. Please check the weather report and take necessary precautions. \n GOOD DAY ☺ ";
+            const char *emailBody = "The minimum temperature is likely to go below 10 °C this week. Please check the weather report and take necessary precautions. \n GOOD DAY ☺ ";
              // Call the sendEmailNotification function
-             printf("NOW I CALL EMAIL\n");
-    sendEmailNotification(emailSubject, emailBody, "temperature_details.pdf");
+    sendEmailNotification(emailSubject, emailBody,recipientEmail);
+    printf("EMAIL SENT SUCCESSFULLY \n");
+     exit(0);
         }
    
 }
