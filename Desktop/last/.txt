@@ -1,0 +1,3 @@
+api ko bolna hai k most relevant pdf nikalo 3 usme se most relevant key dekho aur ans lao
+
+-> remove special charactaers from json.
